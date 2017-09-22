@@ -25,24 +25,24 @@ node groups:
 build args:
     --dse-version:
         default: 5.1.3-1
-        help: DSE version to use.
+        help: DSE version to use
         metavar: ver
 
 start args:
     --dse-version:
         default: 5.1.3-1
-        help: DSE version to use.
+        help: DSE version to use
         metavar: ver
     --dse-cluster-name:
         default: Test Cluster
-        help: DSE cluster name to use.
+        help: DSE cluster name to use
     --kerberos:
-        help: If specified, sets up Kerberos based DSE cluster with a KDC node.
+        help: If specified, sets up Kerberos based DSE cluster with a KDC node
         action: store_true
     --kerberos-config-directory:
         default: ~/.clusterdock/kerberos
-        help: If specified, mounts this directory to KDC container for Kerberos config files.
+        help: Mounts this directory to KDC container for Kerberos config files
         metavar: path
     --kerberos-principals:
-        help: If specified, a comma-separated list of Kerberos user principals to create in KDC.
+        help: If specified, a comma-separated list of Kerberos user principals to create in KDC
         metavar: princ1,princ2,...
