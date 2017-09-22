@@ -97,7 +97,7 @@ def _setup_non_kerberos_nodes(args, dse_image):
     cqlsh_cmd = ("cqlsh -u cassandra -p cassandra {} "
                  "--debug -e 'DESCRIBE KEYSPACES'").format(nodes[0].fqdn)
     _validate_dse_health(nodes=nodes, node_cmd=cqlsh_cmd, node_cmd_expected='system_schema',
-                        quiet=quiet)
+                         quiet=quiet)
 
     logger.info('DSE cluster is available and its contacts are: {}'.format(
         ','.join(node.fqdn for node in nodes)))
@@ -272,23 +272,6 @@ def _setup_kerberos_nodes(args, dse_image):
     logger.info('DSE cluster is available and its contacts are: {}'.format(
         ','.join(node.fqdn for node in nodes)))
     logger.info('From its node, DSE can be accessed with: cqlsh -u cassandra -p cassandra')
-
-
-def _configure_cassandra_yaml(cluster_name, cluster_seeds, node):
-    cassandra_config_data = yaml.load(node.get_file(DSE_CASSANDRA_CONF_FILEPATH))
-    cassandra_config_data['cluster_name'] = cluster_name
-    cassandra_config_data['listen_address'] = node.ip_address
-    cassandra_config_data['rpc_address'] = node.ip_address
-    cassandra_config_data['seed_provider'][0]['parameters'][0]['seeds'] = cluster_seeds
-    node.put_file(DSE_CASSANDRA_CONF_FILEPATH, yaml.dump(cassandra_config_data))
-
-
-def _configure_cqlsh(cqlshrc_data, node, quiet=True):
-    cqlsh_cmd_data = node.get_file(DSE_CQLSH_FILEPATH)
-    node.put_file(DSE_CQLSH_FILEPATH, re.sub(r'.*(bash code here).*',
-                                             '. /opt/rh/python27/enable', cqlsh_cmd_data))
-    node.execute(command='chmod +x {}'.format(DSE_CQLSH_FILEPATH), quiet=quiet)
-    node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
 
 
 def _configure_cassandra_yaml(cluster_name, cluster_seeds, node):
