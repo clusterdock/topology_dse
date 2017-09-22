@@ -13,11 +13,9 @@
 # yaml definition file for the nodebase DSE topology.
 
 name: DSE
-description: A Datastax (DSE) cluster
+description: A DataStax Enterprise (DSE) cluster
 
 node groups:
-    kdc-node:
-        - kdc
     nodes:
         - node-1
         - node-2
@@ -37,7 +35,7 @@ start args:
         default: Test Cluster
         help: DSE cluster name to use
     --kerberos:
-        help: If specified, sets up Kerberos based DSE cluster with a KDC node
+        help: If specified, sets up Kerberos-based DSE cluster with a KDC node
         action: store_true
     --kerberos-config-directory:
         default: ~/.clusterdock/kerberos

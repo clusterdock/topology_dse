@@ -12,10 +12,9 @@
 # limitations under the License.
 
 import logging
+import os
 import re
 import textwrap
-import os
-
 import yaml
 
 from clusterdock.models import Cluster, Node
@@ -30,27 +29,28 @@ KERBEROS_VOLUME_DIR = '/etc/clusterdock/kerberos'
 
 KDC_ACL_FILEPATH = '/var/kerberos/krb5kdc/kadm5.acl'
 KDC_CONF_FILEPATH = '/var/kerberos/krb5kdc/kdc.conf'
+KDC_HOSTNAME = 'kdc'
 KDC_KEYTAB_FILENAME = 'clusterdock.keytab'
-KDC_USER_KEYTAB_FILEPATH = '{}/{}'.format(KERBEROS_VOLUME_DIR, KDC_KEYTAB_FILENAME)
 KDC_KRB5_CONF_FILEPATH = '/etc/krb5.conf'
+KDC_USER_KEYTAB_FILEPATH = '{}/{}'.format(KERBEROS_VOLUME_DIR, KDC_KEYTAB_FILENAME)
 
+DSE_CQLSHRC_HOME_DIR = '/root/.cassandra'
 DSE_HOME_DIR = '/etc/dse'
-DSE_CONF_FILENAME = 'dse.yaml'
-DSE_CONF_FILEPATH = '{}/{}'.format(DSE_HOME_DIR, DSE_CONF_FILENAME)
+
 DSE_CASSANDRA_CONF_FILENAME = 'cassandra.yaml'
 DSE_CASSANDRA_CONF_FILEPATH = '{}/cassandra/{}'.format(DSE_HOME_DIR, DSE_CASSANDRA_CONF_FILENAME)
+DSE_CONF_FILENAME = 'dse.yaml'
+DSE_CONF_FILEPATH = '{}/{}'.format(DSE_HOME_DIR, DSE_CONF_FILENAME)
 DSE_CQLSH_FILEPATH = '/usr/bin/cqlsh'
-DSE_CQLSHRC_HOME_DIR = '/root/.cassandra'
 DSE_CQLSHRC_FILEPATH = '{}/cqlshrc'.format(DSE_CQLSHRC_HOME_DIR)
 DSE_KEYTAB_FILEPATH = '{}/dse.keytab'.format(DSE_HOME_DIR)
 DSE_USER_KEYTAB_FILEPATH = '{}/{}'.format(DSE_HOME_DIR, KDC_KEYTAB_FILENAME)
 
 
 def main(args):
-    dse_image = '{}/{}/clusterdock:dse{}'.format(args.registry, args.namespace or DEFAULT_NAMESPACE,
+    dse_image = '{}/{}/clusterdock:dse{}'.format(args.registry,
+                                                 args.namespace or DEFAULT_NAMESPACE,
                                                  args.dse_version)
-    dse_image = '{}/{}/clusterdock:dse{}'.format(args.registry, args.namespace, args.dse_version)
-
     if args.kerberos:
         _setup_kerberos_nodes(args, dse_image)
     else:
@@ -71,42 +71,34 @@ def _setup_non_kerberos_nodes(args, dse_image):
     for node in nodes:
         # DSE config specific commands
         dse_config_commands = [
-            'cp {} {}.org'.format(DSE_CASSANDRA_CONF_FILEPATH, DSE_CASSANDRA_CONF_FILEPATH),
-            'cp {} {}.org'.format(DSE_CONF_FILEPATH, DSE_CONF_FILEPATH),
+            'cp {} {}.orig'.format(DSE_CASSANDRA_CONF_FILEPATH, DSE_CASSANDRA_CONF_FILEPATH),
+            'cp {} {}.orig'.format(DSE_CONF_FILEPATH, DSE_CONF_FILEPATH),
             'mkdir -p {}'.format(DSE_CQLSHRC_HOME_DIR)
         ]
-        node.execute(command="bash -c '{}'".format('; '.join(dse_config_commands)), quiet=quiet)
+        node.execute('; '.join(dse_config_commands), quiet=quiet)
         # DSE cassandra.yaml mods
-        cassandra_config_data = yaml.load(node.get_file(DSE_CASSANDRA_CONF_FILEPATH))
-        cassandra_config_data['cluster_name'] = cluster_name
-        cassandra_config_data['listen_address'] = node.ip_address
-        cassandra_config_data['rpc_address'] = node.ip_address
-        cassandra_config_data['seed_provider'][0]['parameters'][0]['seeds'] = cluster_seeds
-        node.put_file(DSE_CASSANDRA_CONF_FILEPATH, yaml.dump(cassandra_config_data))
+        _configure_cassandra_yaml(cluster_name, cluster_seeds, node)
         # DSE dse.yaml mods
         dse_config_data = yaml.load(node.get_file(DSE_CONF_FILEPATH))
         dse_config_data['audit_logging_options']['enabled'] = True
         dse_config_data['authentication_options'] = {'enabled': True, 'default_scheme': 'internal'}
         node.put_file(DSE_CONF_FILEPATH, yaml.dump(dse_config_data))
         # DSE cqlsh specific commands
-        cqlsh_cmd_data = node.get_file(DSE_CQLSH_FILEPATH)
-        node.put_file(DSE_CQLSH_FILEPATH, re.sub(r'.*(bash code here).*',
-                                                 '. /opt/rh/python27/enable', cqlsh_cmd_data))
         node.execute(command='chmod +x {}'.format(DSE_CQLSH_FILEPATH), quiet=quiet)
         cqlshrc_data = """
             [connection]
             hostname = {}
             port = 9042
         """.format(node.fqdn)
-        node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
+        _configure_cqlsh(cqlshrc_data, node, quiet)
         # start DSE on the node
         node.execute('service dse restart')
 
     logger.info('Validating DSE service health ...')
-    cqlsh_cmd = "cqlsh -u cassandra -p cassandra {} --debug -e 'DESCRIBE KEYSPACES'".format(
-        nodes[0].fqdn)
+    cqlsh_cmd = ("cqlsh -u cassandra -p cassandra {} "
+                 "--debug -e 'DESCRIBE KEYSPACES'").format(nodes[0].fqdn)
     _validate_dse_health(nodes=nodes, node_cmd=cqlsh_cmd, node_cmd_expected='system_schema',
-                         quiet=quiet)
+                        quiet=quiet)
 
     logger.info('DSE cluster is available and its contacts are: {}'.format(
         ','.join(node.fqdn for node in nodes)))
@@ -125,8 +117,7 @@ def _setup_kerberos_nodes(args, dse_image):
                                                              args.namespace or DEFAULT_NAMESPACE,
                                                              args.operating_system
                                                              or DEFAULT_OPERATING_SYSTEM)
-    kdc_hostname = args.kdc_node[0]
-    kdc_node = Node(hostname=kdc_hostname, group='kdc', image=kdc_image,
+    kdc_node = Node(hostname=KDC_HOSTNAME, group='kdc', image=kdc_image,
                     volumes=[{kerberos_volume_dir: KERBEROS_VOLUME_DIR}])
     cluster = Cluster(kdc_node, *nodes)
     cluster.start(args.network)
@@ -138,7 +129,7 @@ def _setup_kerberos_nodes(args, dse_image):
                       re.sub(r'EXAMPLE.COM', realm,
                              re.sub(r'example.com', cluster.network,
                                     re.sub(r'kerberos.example.com',
-                                           r'{}.{}'.format(kdc_hostname, cluster.network),
+                                           r'{}.{}'.format(KDC_HOSTNAME, cluster.network),
                                            krb5_conf_data))))
     kdc_conf_data = kdc_node.get_file(KDC_CONF_FILEPATH)
     kdc_node.put_file(KDC_CONF_FILEPATH,
@@ -151,7 +142,7 @@ def _setup_kerberos_nodes(args, dse_image):
 
     logger.info('Starting KDC ...')
     kdc_commands = [
-        'kdb5_util create -s -r {realm} -P kdcadmin'.format(realm=realm),
+        'kdb5_util create -s -r {} -P kdcadmin'.format(realm),
         'kadmin.local -q "addprinc -pw {admin_pw} admin/admin@{realm}"'.format(admin_pw='acladmin',
                                                                                realm=realm)
     ]
@@ -164,7 +155,6 @@ def _setup_kerberos_nodes(args, dse_image):
                                   for principal in principal_list]
         kdc_commands.extend(create_principals_cmds)
 
-        kdc_commands.append('sleep 2') # sleep few seconds to have Docker volume available
         kdc_commands.append('rm -f {}'.format(KDC_USER_KEYTAB_FILEPATH))
         create_keytab_cmd = 'kadmin.local -q "xst -norandkey -k {} {}" '.format(
             KDC_USER_KEYTAB_FILEPATH, ' '.join(principal_list))
@@ -180,9 +170,9 @@ def _setup_kerberos_nodes(args, dse_image):
     if args.kerberos_principals:
         kdc_commands.append('chmod 644 {}'.format(KDC_USER_KEYTAB_FILEPATH))
 
-    kdc_node.execute(command="bash -c '{}'".format('; '.join(kdc_commands)), quiet=quiet)
+    kdc_node.execute('; '.join(kdc_commands), quiet=quiet)
 
-    logger.info('Validating service health ...')
+    logger.info('Validating Kerberos service health ...')
     _validate_kdc_health(node=kdc_node, services=['krb5kdc', 'kadmin'], quiet=quiet)
 
     # Add DSE specific logic on KDC host
@@ -197,7 +187,7 @@ def _setup_kerberos_nodes(args, dse_image):
             'kadmin.local -q "ktadd -k {} HTTP/{}"'.format(key_tab_filename, node.fqdn),
             'chmod 644 {}'.format(key_tab_filename)
         ]
-        kdc_node.execute(command="bash -c '{}'".format('; '.join(kdc_dse_commands)), quiet=quiet)
+        kdc_node.execute('; '.join(kdc_dse_commands), quiet=quiet)
 
     # DSE node logic
     logger.info('Updating DSE configurations and starting DSE nodes ...')
@@ -206,32 +196,27 @@ def _setup_kerberos_nodes(args, dse_image):
     for node in nodes:
         # kerberos specific commands
         dse_kdc_commands = [
-            'cp {}/krb5.conf /etc/.'.format(KERBEROS_VOLUME_DIR),
+            'cp {}/krb5.conf /etc'.format(KERBEROS_VOLUME_DIR),
             'cp {}/{}.keytab {}'.format(KERBEROS_VOLUME_DIR, node.fqdn, DSE_KEYTAB_FILEPATH),
             'chown cassandra:cassandra {}'.format(DSE_KEYTAB_FILEPATH),
             'chmod 600 {}'.format(DSE_KEYTAB_FILEPATH)
         ]
         if args.kerberos_principals:
             dse_kdc_commands.extend([
-                'cp {} {}/.'.format(KDC_USER_KEYTAB_FILEPATH, DSE_HOME_DIR),
+                'cp {} {}'.format(KDC_USER_KEYTAB_FILEPATH, DSE_HOME_DIR),
                 'chown cassandra:cassandra {}'.format(DSE_USER_KEYTAB_FILEPATH),
                 'chmod 600 {}'.format(DSE_USER_KEYTAB_FILEPATH)
             ])
-        node.execute(command="bash -c '{}'".format('; '.join(dse_kdc_commands)), quiet=quiet)
+        node.execute('; '.join(dse_kdc_commands), quiet=quiet)
         # DSE config specific commands
         dse_config_commands = [
-            'cp {} {}.org'.format(DSE_CASSANDRA_CONF_FILEPATH, DSE_CASSANDRA_CONF_FILEPATH),
-            'cp {} {}.org'.format(DSE_CONF_FILEPATH, DSE_CONF_FILEPATH),
+            'cp {} {}.orig'.format(DSE_CASSANDRA_CONF_FILEPATH, DSE_CASSANDRA_CONF_FILEPATH),
+            'cp {} {}.orig'.format(DSE_CONF_FILEPATH, DSE_CONF_FILEPATH),
             'mkdir -p {}'.format(DSE_CQLSHRC_HOME_DIR)
         ]
-        node.execute(command="bash -c '{}'".format('; '.join(dse_config_commands)), quiet=quiet)
+        node.execute('; '.join(dse_config_commands), quiet=quiet)
         # DSE cassandra.yaml mods
-        cassandra_config_data = yaml.load(node.get_file(DSE_CASSANDRA_CONF_FILEPATH))
-        cassandra_config_data['cluster_name'] = cluster_name
-        cassandra_config_data['listen_address'] = node.ip_address
-        cassandra_config_data['rpc_address'] = node.ip_address
-        cassandra_config_data['seed_provider'][0]['parameters'][0]['seeds'] = cluster_seeds
-        node.put_file(DSE_CASSANDRA_CONF_FILEPATH, yaml.dump(cassandra_config_data))
+        _configure_cassandra_yaml(cluster_name, cluster_seeds, node)
         # DSE dse.yaml mods
         dse_config_data = yaml.load(node.get_file(DSE_CONF_FILEPATH))
         dse_config_data['audit_logging_options']['enabled'] = True
@@ -251,9 +236,6 @@ def _setup_kerberos_nodes(args, dse_image):
                                                'qop': 'auth'}
         node.put_file(DSE_CONF_FILEPATH, yaml.dump(dse_config_data))
         # DSE cqlsh specific commands
-        cqlsh_cmd_data = node.get_file(DSE_CQLSH_FILEPATH)
-        node.put_file(DSE_CQLSH_FILEPATH, re.sub(r'.*(bash code here).*',
-                                                 '. /opt/rh/python27/enable', cqlsh_cmd_data))
         node.execute(command='chmod +x {}'.format(DSE_CQLSH_FILEPATH), quiet=quiet)
         cqlshrc_data = """
             [connection]
@@ -264,14 +246,15 @@ def _setup_kerberos_nodes(args, dse_image):
             service = dse
             qops = auth
         """.format(node.fqdn)
-        node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
+        _configure_cqlsh(cqlshrc_data, node, quiet)
         # start DSE on the node
         node.execute('service dse restart')
 
     logger.info('Validating DSE service health ...')
     cqlsh_cmd = "cqlsh -u cassandra -p cassandra {} --debug -e 'DESCRIBE KEYSPACES'".format(
         nodes[0].fqdn)
-    _validate_dse_health(nodes=nodes, node_cmd=cqlsh_cmd, node_cmd_expected='system_schema')
+    _validate_dse_health(nodes=nodes, node_cmd=cqlsh_cmd, node_cmd_expected='system_schema',
+                         quiet=quiet)
 
     if args.kerberos_principals:
         principal_list = ['{}@{}'.format(principal, realm)
@@ -280,15 +263,33 @@ def _setup_kerberos_nodes(args, dse_image):
         logger.info('Kerberos DSE keytab file available on the node at {}'.format(
             DSE_USER_KEYTAB_FILEPATH))
         for principal in principal_list:
-            cqlsh_cmd = """cqlsh -u cassandra -p cassandra {} --debug """.format(nodes[0].fqdn)
-            cqlsh_cmd += """-e 'CREATE ROLE "{}" WITH LOGIN = true;""".format(principal)
-            cqlsh_cmd += """GRANT EXECUTE on KERBEROS SCHEME to "{}";""".format(principal)
-            cqlsh_cmd += """GRANT ALL on ALL KEYSPACES to "{}";'""".format(principal)
+            cqlsh_cmd = ("""cqlsh -u cassandra -p cassandra {address} --debug """
+                         """-e 'CREATE ROLE "{principal}" WITH LOGIN = true;"""
+                         """GRANT EXECUTE on KERBEROS SCHEME to "{principal}";"""
+                         """GRANT ALL on ALL KEYSPACES to "{principal}";'""").format(
+                             address=nodes[0].fqdn, principal=principal)
             nodes[0].execute(command=cqlsh_cmd, quiet=quiet)
 
     logger.info('DSE cluster is available and its contacts are: {}'.format(
         ','.join(node.fqdn for node in nodes)))
     logger.info('From its node, DSE can be accessed with: cqlsh -u cassandra -p cassandra')
+
+
+def _configure_cassandra_yaml(cluster_name, cluster_seeds, node):
+    cassandra_config_data = yaml.load(node.get_file(DSE_CASSANDRA_CONF_FILEPATH))
+    cassandra_config_data['cluster_name'] = cluster_name
+    cassandra_config_data['listen_address'] = node.ip_address
+    cassandra_config_data['rpc_address'] = node.ip_address
+    cassandra_config_data['seed_provider'][0]['parameters'][0]['seeds'] = cluster_seeds
+    node.put_file(DSE_CASSANDRA_CONF_FILEPATH, yaml.dump(cassandra_config_data))
+
+
+def _configure_cqlsh(cqlshrc_data, node, quiet=True):
+    cqlsh_cmd_data = node.get_file(DSE_CQLSH_FILEPATH)
+    node.put_file(DSE_CQLSH_FILEPATH, re.sub(r'.*(bash code here).*',
+                                             '. /opt/rh/python27/enable', cqlsh_cmd_data))
+    node.execute(command='chmod +x {}'.format(DSE_CQLSH_FILEPATH), quiet=quiet)
+    node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
 
 
 def _validate_kdc_health(node, services, quiet=True):

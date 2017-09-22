@@ -11,15 +11,23 @@
 # limitations under the License.
 FROM clusterdock/topology_nodebase:centos6.8
 
-ADD dse.repo /etc/yum.repos.d/
-
 ARG JDK_URL=http://download.oracle.com/otn-pub/java/jdk/8u131-b11/d54c1d3a095b4ff2b6607d096fa80163/jdk-8u131-linux-x64.tar.gz
 ARG JCE_URL=http://download.oracle.com/otn-pub/java/jce/8/jce_policy-8.zip
 ARG JDK_DIRECTORY=/usr/java/jdk1.8.0_131
 ARG DSE_VERSION=5.1.3-1
+ARG DSE_REPO_URL
+
+RUN echo ${DSE_REPO_URL} > /etc/yum/vars/dse_repo_url
+ADD dse.repo /etc/yum.repos.d/
 
 RUN yum -y update && \
-    yum -y install unzip
+    yum -y install unzip \
+    scl-utils \
+    centos-release-scl-rh \
+    krb5-workstation \
+    krb5-devel \
+    gcc \
+    python26-kerberos
 
 # Java setup
 RUN wget --no-check-certificate \
@@ -35,18 +43,14 @@ RUN wget --no-check-certificate \
     unzip -jo -d ${JDK_DIRECTORY}/jre/lib/security /tmp/unlimited_jce_policy.zip && \
     rm -f /tmp/unlimited_jce_policy.zip
 
+# Make the installed Java as default.
 RUN update-alternatives --install "/usr/bin/java" "java" "${JDK_DIRECTORY}/bin/java" 1
 RUN update-alternatives --set java ${JDK_DIRECTORY}/bin/java
 
-# DSE setup
-RUN yum -y install dse-full-${DSE_VERSION}
+# Add Python 2.7 as needed by DSE's cqlsh tool - needs to follow after scl-utils install.
+RUN yum -y install dse-full-${DSE_VERSION} \
+    python27 && \
+    yum clean all
 
-# Add Python 2.7 as needed by DSE's cqlsh tool
-RUN yum install -y scl-utils centos-release-scl-rh
-RUN yum install -y python27
-
-# Add Kerberos client specific packages
-RUN yum install -y krb5-workstation krb5-devel gcc python26-kerberos
+# Install Kerberos Python package as required by DSE's cqlsh tool.
 RUN . /opt/rh/python27/enable && pip install pure-sasl kerberos
-
-CMD ["/sbin/init"]

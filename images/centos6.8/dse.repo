@@ -1,5 +1,5 @@
 [datastax]
 name = DataStax Repo for DataStax Enterprise
-baseurl=https://srid%40streamsets.com:Streamsetsme3@rpm.datastax.com/enterprise
+baseurl=$dse_repo_url
 enabled=1
 gpgcheck=0

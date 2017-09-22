@@ -32,7 +32,7 @@ with the ``clusterdock`` script:
     2017-09-20 10:18:53 PM clusterdock.topology_dse.start INFO     From its node, DSE can be accessed with: cqlsh -u cassandra -p cassandra
     2017-09-20 10:18:53 PM clusterdock.cli      INFO     Cluster started successfully (total time: 1m 14s).
 
-To start a Kerberos based DSE cluster:
+To start a Kerberos-based DSE cluster:
 
 .. code-block:: console
 
@@ -102,9 +102,6 @@ To see full usage instructions for the ``start`` action, use ``-h``/``--help``:
                             principals to create in KDC. (default: None)
 
     Node groups:
-      --kdc-node node [node ...]
-                            Nodes of the kdc-node group (default: ['kdc'])
       --nodes node [node ...]
                             Nodes of the nodes group (default: ['node-1',
-                            'node-2'])
                             'node-2'])
