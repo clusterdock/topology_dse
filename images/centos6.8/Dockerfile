@@ -16,6 +16,7 @@ ADD dse.repo /etc/yum.repos.d/
 ARG JDK_URL=http://download.oracle.com/otn-pub/java/jdk/8u131-b11/d54c1d3a095b4ff2b6607d096fa80163/jdk-8u131-linux-x64.tar.gz
 ARG JCE_URL=http://download.oracle.com/otn-pub/java/jce/8/jce_policy-8.zip
 ARG JDK_DIRECTORY=/usr/java/jdk1.8.0_131
+ARG DSE_VERSION=5.1.3-1
 
 RUN yum -y update && \
     yum -y install unzip
@@ -38,7 +39,7 @@ RUN update-alternatives --install "/usr/bin/java" "java" "${JDK_DIRECTORY}/bin/j
 RUN update-alternatives --set java ${JDK_DIRECTORY}/bin/java
 
 # DSE setup
-RUN yum -y install dse-full
+RUN yum -y install dse-full-${DSE_VERSION}
 
 # Add Python 2.7 as needed by DSE's cqlsh tool
 RUN yum install -y scl-utils centos-release-scl-rh

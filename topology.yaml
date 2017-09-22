@@ -22,7 +22,17 @@ node groups:
         - node-1
         - node-2
 
+build args:
+    --dse-version:
+        default: 5.1.3-1
+        help: DSE version to use.
+        metavar: ver
+
 start args:
+    --dse-version:
+        default: 5.1.3-1
+        help: DSE version to use.
+        metavar: ver
     --dse-cluster-name:
         default: Test Cluster
         help: DSE cluster name to use.

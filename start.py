@@ -23,6 +23,7 @@ from clusterdock.utils import wait_for_condition
 
 logger = logging.getLogger('clusterdock.{}'.format(__name__))
 
+DEFAULT_NAMESPACE = 'clusterdock'
 DEFAULT_OPERATING_SYSTEM = 'centos6.8'
 
 KDC_ACL_FILEPATH = '/var/kerberos/krb5kdc/kadm5.acl'
@@ -47,9 +48,8 @@ DSE_USER_KEYTAB_FILEPATH = '{}/{}'.format(DSE_HOME_DIR, KDC_KEYTAB_FILENAME)
 def main(args):
     global quiet_logging
     quiet_logging = False if args.verbose else True
+    dse_image = '{}/{}/clusterdock:dse{}'.format(args.registry, args.namespace, args.dse_version)
 
-    dse_image = '{}/{}/topology_dse:{}'.format(args.registry, args.namespace,
-                                               args.operating_system or DEFAULT_OPERATING_SYSTEM)
     if args.kerberos:
         _setup_kerberos_nodes(args, dse_image)
     else:
@@ -112,7 +112,7 @@ def _setup_kerberos_nodes(args, dse_image):
     nodes = [Node(hostname=hostname, group='nodes', image=dse_image,
                   volumes=[{kerberos_volume_dir: KERBEROS_VOLUME_DIR}]) for hostname in args.nodes]
 
-    kdc_image = '{}/{}/topology_nodebase_kerberos:{}'.format(args.registry, args.namespace,
+    kdc_image = '{}/{}/topology_nodebase_kerberos:{}'.format(args.registry, args.namespace or DEFAULT_NAMESPACE,
                                                              args.operating_system or DEFAULT_OPERATING_SYSTEM)
     kdc_hostname = args.kdc_node[0]
     kdc_node = Node(hostname=kdc_hostname, group='kdc', image=kdc_image,
@@ -150,6 +150,7 @@ def _setup_kerberos_nodes(args, dse_image):
                                   for principal in principal_list]
         kdc_commands.extend(create_principals_cmds)
 
+        kdc_commands.append('sleep 2') # sleep few seconds to have Docker volume available
         kdc_commands.append('rm -f {}'.format(KDC_USER_KEYTAB_FILEPATH))
         create_keytab_cmd = 'kadmin.local -q "xst -norandkey -k {} {}" '.format(KDC_USER_KEYTAB_FILEPATH,
                                                                                 ' '.join(principal_list))
