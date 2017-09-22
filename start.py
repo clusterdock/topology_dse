@@ -59,7 +59,6 @@ def main(args):
 
 def _setup_non_kerberos_nodes(args, dse_image):
     quiet = not args.verbose
-
     nodes = [Node(hostname=hostname, group='nodes', image=dse_image) for hostname in args.nodes]
     cluster = Cluster(*nodes)
     cluster.start(args.network)
@@ -115,8 +114,8 @@ def _setup_kerberos_nodes(args, dse_image):
 
     kdc_image = '{}/{}/topology_nodebase_kerberos:{}'.format(args.registry,
                                                              args.namespace or DEFAULT_NAMESPACE,
-                                                             args.operating_system
-                                                             or DEFAULT_OPERATING_SYSTEM)
+                                                             args.operating_system or
+                                                             DEFAULT_OPERATING_SYSTEM)
     kdc_node = Node(hostname=KDC_HOSTNAME, group='kdc', image=kdc_image,
                     volumes=[{kerberos_volume_dir: KERBEROS_VOLUME_DIR}])
     cluster = Cluster(kdc_node, *nodes)
@@ -292,6 +291,23 @@ def _configure_cqlsh(cqlshrc_data, node, quiet=True):
     node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
 
 
+def _configure_cassandra_yaml(cluster_name, cluster_seeds, node):
+    cassandra_config_data = yaml.load(node.get_file(DSE_CASSANDRA_CONF_FILEPATH))
+    cassandra_config_data['cluster_name'] = cluster_name
+    cassandra_config_data['listen_address'] = node.ip_address
+    cassandra_config_data['rpc_address'] = node.ip_address
+    cassandra_config_data['seed_provider'][0]['parameters'][0]['seeds'] = cluster_seeds
+    node.put_file(DSE_CASSANDRA_CONF_FILEPATH, yaml.dump(cassandra_config_data))
+
+
+def _configure_cqlsh(cqlshrc_data, node, quiet=True):
+    cqlsh_cmd_data = node.get_file(DSE_CQLSH_FILEPATH)
+    node.put_file(DSE_CQLSH_FILEPATH, re.sub(r'.*(bash code here).*',
+                                             '. /opt/rh/python27/enable', cqlsh_cmd_data))
+    node.execute(command='chmod +x {}'.format(DSE_CQLSH_FILEPATH), quiet=quiet)
+    node.put_file(DSE_CQLSHRC_FILEPATH, textwrap.dedent(cqlshrc_data))
+
+
 def _validate_kdc_health(node, services, quiet=True):
     def condition(node, services):
         services_with_poor_health = [service
@@ -318,9 +334,9 @@ def _validate_dse_health(nodes, node_cmd, node_cmd_expected, quiet=True):
     def condition(nodes, node_cmd, node_cmd_expected):
         nodes_with_poor_health = [node for node in nodes
                                   if 'running' not in node.execute(command='nodetool statusgossip',
-                                                                   quiet=quiet).output
-                                  or node_cmd_expected not in node.execute(command=node_cmd,
-                                                                           quiet=quiet).output]
+                                                                   quiet=quiet).output or
+                                  node_cmd_expected not in node.execute(command=node_cmd,
+                                                                        quiet=quiet).output]
         if nodes_with_poor_health:
             logger.debug('Nodes with poor health: %s',
                          ', '.join(node.fqdn for node in nodes_with_poor_health))
